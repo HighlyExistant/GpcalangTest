@@ -1,0 +1,21 @@
+Independant Variables:
+- World Width
+- World Height
+- Entities Mutate Boolean
+- Entities Use Energy Boolean
+- Entity Energy Default
+- Entity Functions
+- Starting Entity Count
+- RNG Stream
+- RNG State
+
+Dependant Variables:
+- Current Entity Count
+- Entity per Area (World Width * World Height)/(Current Entity Count)
+
+Vocabulary:
+
+- Stabilizes: When the entities either stop moving or repeat the same position.
+    - Checkerboard Stabilization: Occurs when the entities stabilize in a pattern where
+    there is 1 dead space and 1 alive space in a checkerboard patter. Occurs when entities
+    eat and spawn diagonally.

@@ -1,0 +1,142 @@
+Per Organism Registers:
+%dr0 holds data
+%dr1 holds data
+%px holds x position in the world (can only be incremented or decremented).
+%py holds y position in the world (can only be incremented or decremented).
+%er holds the current energy in the entity. Energy replenishes and diminishes after every code execution.
+    Entities can restore energy by eating other entities or by grabbing it from the enviornment, but they can't
+    create energy from nothing.
+TOTAL SIZE: 32 bytes
+%dr0    | 8
+%dr1    | 16
+%px     | 20
+%py     | 24
+%er     | 28
+
+- Codes that kill other entities
+- Codes that move self
+- Codes that get data from the world and other entities
+
+Events: Are conditions that are found in the world. It can be one of the following:
+    - Is surrounding entities (conditional) to modulus 8 of constant.
+    - (unconditional, always true)
+Responses: Are responses to events, 
+* They mutate the entity or surrounding entities (responses can not alter anything apart from the nearest squares, like a king in chess)
+* They can only mutate one cell at a time but can read multiple cells.
+    - MoveX
+    - MoveY
+    - Jump: Jumps to a (constant point or register). Using the modulus of the length of total code, it wraps around to avoid errors.
+    - Call: Jumps to a user defined code point using the modulus of the length of total user defined code points of a (constant index or register), it wraps to avoid errors.
+            Due to how much freedom this has, the rules technically don't fully apply, specifically "They can only mutate one cell at a time".
+CODE && (CONST or REG/CONST or REGBYTE)
+
+REGBYTE:
+%dr0 and %dr1 each have 4 registers inside eachother for a 
+total of 8 registers.
+(SIZE):
+64 bit registers = 0b0 and REG bits turn to RESERVED. RESERVED can become more opcodes maybe.
+8 bit registers = 0b1
+(REG/RESERVED):
+%dr0_0 = 0b000
+%dr0_1 = 0b001
+%dr0_2 = 0b010
+%dr0_3 = 0b011
+%dr0_0 = 0b100
+%dr0_1 = 0b101
+%dr0_2 = 0b110
+%dr0_3 = 0b111
+
+0bSR_RRR_RRR
+
+RESPONSES:
+
+REG/CONST = 0b000_00000
+0x00 0x00 -> Move (REG/CONST)
+0b000_00000 (N / A) -> Move (%dr0 is MODULUS 8 for 8 possible moveable squares)
+0b000_00001 (N / A) -> Move (%dr1 is MODULUS 8 for 8 possible moveable squares)
+0b000_00010 (N / A) -> Call (%dr0)
+0b000_00011 (N / A) -> Call (%dr1)
+0b000_00100 (N / A) -> RESERVED/NOP
+0b000_00101 (N / A) -> RESERVED/NOP
+0b000_00110 (N / A) -> RESERVED/NOP
+0b000_00111 (N / A) -> RESERVED/NOP
+0b000_01000 (CONST) -> Je (%dr0 Jump Equal %dr1)
+0b000_01001 (CONST) -> Jne (%dr0 Jump Not Equal %dr1)
+0b000_01010 (CONST) -> Jg (%dr0 Jump Greater %dr1)
+0b000_01011 (CONST) -> Jl (%dr0 Jump Lesser %dr1)
+0b000_01100 (CONST) -> Jge (%dr0 Jump Greater Equal %dr1)
+0b000_01101 (CONST) -> Jle (%dr0 Jump Lesser Equal %dr1)
+0b000_01110 (CONST) -> Jmp (%dr0 Jump Unconditional %dr1)
+0b000_01111 (CONST) -> Move (CONST is MODULUS 8 for 8 possible moveable squares)
+0b000_10000 (REGBYTE) -> Add
+0b000_10001 (REGBYTE) -> Sub
+0b000_10010 (REGBYTE) -> Mul
+0b000_10011 (REGBYTE) -> Div (MAX if it divides by 0)
+0b000_10100 (REGBYTE) -> Xor
+0b000_10101 (REGBYTE) -> And
+0b000_10110 (REGBYTE) -> Or
+0b000_10111 (REGBYTE) -> Mov
+0b000_11000 (REGBYTE) -> SHL
+0b000_11001 (REGBYTE) -> SHR
+0b000_11010 (CONST) -> RESERVED/NOP
+0b000_11011 (CONST) -> RESERVED/NOP
+0b000_11100 (CONST) -> RESERVED/NOP
+0b000_11101 (CONST) -> RESERVED/NOP
+0b000_11110 (CONST) -> RESERVED/NOP
+0b000_11111 (N / A) -> XCHG
+0b000_100000 (CONST) -> Je (%dr1 Jump Equal %dr0)
+0b000_100001 (CONST) -> Jne (%dr1 Jump Not Equal %dr0)
+0b000_100010 (CONST) -> Jg (%dr1 Jump Greater %dr0)
+0b000_100011 (CONST) -> Jl (%dr1 Jump Lesser %dr0)
+0b000_100100 (CONST) -> Jge (%dr1 Jump Greater Equal %dr0)
+0b000_100101 (CONST) -> Jle (%dr1 Jump Lesser Equal %dr0)
+0b000_100110 (CONST) -> Jmp (%dr1 Jump Unconditional %dr0)
+0b000_100111 (CONST) -> RESERVED/NOP
+0b000_101000 (CONST) -> RESERVED/NOP
+0b000_101001 (CONST) -> RESERVED/NOP
+0b000_101010 (CONST) -> RESERVED/NOP
+0b000_101011 (CONST) -> RESERVED/NOP
+0b000_101100 (CONST) -> RESERVED/NOP
+0b000_101101 (CONST) -> RESERVED/NOP
+0b000_101110 (CONST) -> RESERVED/NOP
+0b000_101111 (CONST) -> RESERVED/NOP
+0b000_110000 (CONST) -> RESERVED/NOP
+0b000_110000 (CONST) -> Add
+0b000_110001 (CONST) -> Sub 10011
+0b000_110010 (CONST) -> Mul
+0b000_110011 (CONST) -> Div (MAX if it divides by 0)
+0b000_110100 (CONST) -> Xor
+0b000_110101 (CONST) -> And
+0b000_110110 (CONST) -> Or
+0b000_110111 (CONST) -> RESERVED/NOP
+0b000_111000 (N / A) -> INC %px
+0b000_111001 (N / A) -> DEC %px
+0b000_111010 (N / A) -> INC %py
+0b000_111011 (N / A) -> DEC %py
+EVENTS:
+0b0000_0000 (REGBYTE) (Equal)
+0b0000_0001 (REGBYTE) (Not Equal)
+0b0000_0010 (REGBYTE) (Greater)
+0b0000_0011 (REGBYTE) (Lesser)
+0b0000_0100 (REGBYTE) (Greater Equal)
+0b0000_0101 (REGBYTE) (Lesser Equal)
+0b0000_0110 (REGBYTE) (Unconditional)
+0b0000_0111 (N / A) RESERVED
+0b000_01000 (CONST) (Modulo 8 Equal Surrounding Squares)
+0b000_01001 (CONST) (Modulo 8 Not Equal Surrounding Squares)
+0b000_01010 (CONST) (Modulo 8 Greater Surrounding Squares)
+0b000_01011 (CONST) (Modulo 8 Lesser Surrounding Squares)
+0b000_01100 (CONST) (Modulo 8 Greater Equal Surrounding Squares)
+0b000_01101 (CONST) (Modulo 8 Lesser Equal Surrounding Squares)
+0b000_01110 (CONST) (Modulo 8 Unconditional Surrounding Squares) equivalent to Unconditional
+0b000_01111 (N / A) RESERVED
+0b000_11000 (REGBYTE) (Modulo 8 Equal Surrounding Squares)
+0b000_11001 (REGBYTE) (Modulo 8 Not Equal Surrounding Squares)
+0b000_11010 (REGBYTE) (Modulo 8 Greater Surrounding Squares)
+0b000_11011 (REGBYTE) (Modulo 8 Lesser Surrounding Squares)
+0b000_11100 (REGBYTE) (Modulo 8 Greater Equal Surrounding Squares)
+0b000_11101 (REGBYTE) (Modulo 8 Lesser Equal Surrounding Squares)
+0b000_11110 (REGBYTE) (Modulo 8 Unconditional Surrounding Squares)
+0b000_11111 (N / A) RESERVED
+// im gonna reaffirm that so you know you're amazing <3
+Event -> Response

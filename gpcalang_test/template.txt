@@ -1,0 +1,221 @@
+use std::{num::NonZeroIsize, os::raw::c_void, sync::Arc, time::Instant};
+
+use affogato::{geometry::Rect, linear::{FMat3, FVec2, FVec3, FVec4, SquareMatrix, Transformation2D}};
+use arc_swap::ArcSwap;
+use frappe::{collection::{alloc::{allocator::{freelist::FreeListAllocatorInternal, standard::StandardMemoryAllocator}, descriptor::{DescriptorSetAllocator, StandardDescriptorSetAllocatorCreateInfo}, set_global_descriptor_allocator, set_global_gpu_allocator}, collection::HostVec, data::GpuGuard}, core::{ash::vk::{self, CullModeFlags}, commands::{CommandBufferBeginInfo, CommandPool, CommandPoolAllocation}, device::{queue::Queue, LogicalDevice, LogicalDeviceBuilder}, instance::InstanceBuilder, khr::surface::Surface, pipeline::graphics::{FrontFace, LineTopology, RasterizationMode, TriangleTopology}, Version}, obj::Mesh, physics::{collision::{Collision, SeparatingAxisTheorem2D}, kinermatics::Chain}, task_loop::TaskExecutionLoop, visual::{raster::{GraphicsRenderer, LinePipelineVertex, PlainPipeline, Raster2DPipelinePushConstant, RenderingSwapchain}, RecreateableRenderer, Renderer}, TimeCycle};
+use futures_signals::signal::Mutable;
+
+use winit::{application::ApplicationHandler, event::{KeyEvent, WindowEvent}, event_loop::{ActiveEventLoop, ControlFlow, EventLoop}, keyboard::Key, raw_window_handle::{DisplayHandle, HasWindowHandle, RawWindowHandle, Win32WindowHandle, WindowHandle}, window::{Window, WindowId}};
+pub fn standard() -> (Arc<LogicalDevice>, impl ExactSizeIterator<Item = Arc<Queue>>) {
+    let instance = InstanceBuilder::new()
+        .set_version(Version::new(1, 3, 0))
+        .validation_layers()
+        .required_windowing_extensions()
+        .get_physical_device_properties2()
+        .device_group_creation_extension()
+        .build().unwrap();
+        let physical_device = instance.enumerate_physical_devices().unwrap().next().unwrap();
+        let graphics_queue_family_index = physical_device.enumerate_queue_family_properties()
+            .iter()
+            .enumerate()
+            .position(|(_queue_family_index, queue_family_properties)|{
+                queue_family_properties.queue_flags.contains(vk::QueueFlags::GRAPHICS|vk::QueueFlags::COMPUTE|vk::QueueFlags::TRANSFER)
+            }).unwrap();
+        let compute_queue_family_index = physical_device.enumerate_queue_family_properties()
+            .iter()
+            .enumerate()
+            .position(|(_queue_family_index, queue_family_properties)|{
+                queue_family_properties.queue_flags.contains(vk::QueueFlags::COMPUTE)
+            }).unwrap();
+        
+        let (device, mut queues) = LogicalDeviceBuilder::new()
+            .add_queue(vk::DeviceQueueCreateFlags::empty(), graphics_queue_family_index as u32, 1, 0, &1.0)
+            .add_queue(vk::DeviceQueueCreateFlags::empty(), compute_queue_family_index as u32, 1, 0, &1.0)
+            .fill_mode_non_solid()
+            .device_group()
+            .enable_float64()
+            .runtime_descriptor_array()
+            .enable_int64()
+            .wide_lines()
+            .descriptor_indexing(
+                true, 
+                true, 
+                true, 
+                true, 
+                true, 
+                true, 
+                true, 
+                true, 
+                true)
+            .subgroup_ballot()
+            .enable_swapchain_extensions()
+            .enable_buffer_addressing()
+            .build(physical_device.clone()).unwrap();
+    (device, queues)
+}
+pub struct AppState {
+    window: Arc<Window>,
+    surface: Arc<Surface>,
+    renderer: RenderingSwapchain,
+    graphics: PlainPipeline,
+}
+impl AppState {
+    pub fn window(&self) -> &Arc<Window> {
+        &self.window
+    }
+}
+struct App {
+    state: Option<AppState>,
+    device: Arc<LogicalDevice>,
+    general_purpose: Arc<Queue>,
+    command_pool: Arc<CommandPool>,
+    command_buffers: Vec<CommandPoolAllocation>,
+    descriptor_allocator: Arc<DescriptorSetAllocator>,
+    mesh: Mesh<LinePipelineVertex>,
+    dt: f64,
+    time: f64,
+    fps60: TimeCycle,
+    allocator: Arc<StandardMemoryAllocator<FreeListAllocatorInternal>>,
+}
+impl App {
+    pub fn new(queue: Arc<Queue>, command_pool: Arc<CommandPool>, descriptor_allocator: Arc<DescriptorSetAllocator>, allocator: Arc<StandardMemoryAllocator<FreeListAllocatorInternal>>) -> Self {
+        let command_buffers = unsafe { command_pool.allocate_command_buffers(vk::CommandBufferLevel::PRIMARY, 2).unwrap().collect::<Vec<_>>() };
+        let square = Rect::from_lengths(1.0, 1.0f32);
+        let vertices = square.get_vertices().iter().map(|v|{
+            LinePipelineVertex { pos: (*v).into(), color: FVec4::rgba_from_u32(0xffffffff) }
+        }).collect::<Vec<_>>();
+        let mesh = Mesh::from_slice(allocator.clone(), vk::BufferUsageFlags::VERTEX_BUFFER, vk::BufferUsageFlags::INDEX_BUFFER, &vertices, &square.get_tri_indices());
+        
+        Self { 
+            state: None, 
+            device: queue.device(), 
+            general_purpose: queue.clone(), 
+            command_pool, 
+            command_buffers, 
+            descriptor_allocator, 
+            allocator,
+            mesh,
+            dt: 0.0,
+            time: 0.0,
+            fps60: TimeCycle::new(1.0/30.0),
+        }
+    }
+}
+impl ApplicationHandler for App {
+    fn resumed(&mut self, event_loop: &ActiveEventLoop) {
+        if self.state.is_none() {
+            let window = Arc::new(event_loop.create_window(Window::default_attributes()).unwrap());
+
+            let handle = window.window_handle().unwrap();
+            let raw = handle.as_raw();
+            let (hwnd, hinstance) = if let RawWindowHandle::Win32(handle) = raw {
+                (isize::from(handle.hwnd) as *const isize as *mut c_void, isize::from(handle.hinstance.unwrap()) as *const isize as *mut c_void)
+            } else {
+                panic!("FUCK ME")
+            };
+            let mut win_handle = Win32WindowHandle::new(NonZeroIsize::new(hwnd as isize).unwrap());
+            win_handle.hinstance = Some(NonZeroIsize::new(hinstance as isize).unwrap());
+            let surface = Arc::new(unsafe { 
+                Surface::from_handles(
+                self.device.instance(), 
+                DisplayHandle::windows(),
+                WindowHandle::borrow_raw(RawWindowHandle::Win32(win_handle))
+                ).unwrap() 
+            });
+            let renderer = RenderingSwapchain::new(self.device.clone(), self.allocator.clone(), window.clone(), surface.clone(), 2).unwrap();
+            
+            let graphics = PlainPipeline::<LinePipelineVertex>::new(self.device.clone(), self.allocator.clone(), self.descriptor_allocator.clone(), renderer.render_pass(), RasterizationMode::triangle(TriangleTopology::List, CullModeFlags::NONE, FrontFace::CounterClockwise), 2).unwrap();
+            self.state = Some(AppState { 
+                window, 
+                surface,
+                renderer,
+                graphics,
+            });
+        }
+    }
+
+    fn window_event(&mut self, event_loop: &ActiveEventLoop, id: WindowId, event: WindowEvent) {
+        let state = self.state.as_mut().unwrap();
+        let then = Instant::now();
+
+        match event {
+            WindowEvent::CloseRequested => {
+                println!("The close button was pressed; stopping");
+                event_loop.exit();
+            },
+            WindowEvent::CursorMoved { device_id, position } => {
+                let window_size = state.window.inner_size();
+                frappe::input::modify_mouse_position_vulkan(position.x, position.y, window_size.width, window_size.height);
+            }
+            WindowEvent::RedrawRequested => {
+                state.renderer.next_image().unwrap();
+                let cmd = &self.command_buffers[state.renderer.current_frame()];
+                cmd.begin(CommandBufferBeginInfo::default()).unwrap();
+                state.renderer.render(cmd, |cmd, renderer|{
+                    state.graphics.bind_pipeline(cmd);
+                    cmd.bind_index_buffers(self.mesh.indices().handle(), 0, vk::IndexType::UINT32);
+                    cmd.bind_vertex_buffers(0, &[self.mesh.vertices().handle()], &[0]);
+                    state.graphics.push_constant(cmd, Raster2DPipelinePushConstant { transform: FMat3::identity() });
+                    cmd.draw_indexed(self.mesh.index_count() as u32, 1, 0, 0, 0);
+                });
+                
+                cmd.end().unwrap();
+                state.renderer.submit(self.general_purpose.clone(), cmd);
+
+                state.window.request_redraw();
+            }
+            WindowEvent::KeyboardInput { device_id, event, is_synthetic } => {
+                frappe::input::modify_keyboard_input(&event);
+            }
+            WindowEvent::Resized(size) => {
+                state.renderer.recreate_renderer(size.into());
+            }
+            _ => (),
+        }
+        // println!("fps {}", 1.0/self.dt);
+        self.dt = then.elapsed().as_secs_f64();
+        self.time += self.dt;
+        self.fps60.step(self.dt);
+    }
+    fn exiting(&mut self, event_loop: &ActiveEventLoop) {
+        self.device.wait().unwrap();
+    }
+}
+fn main() {
+    
+    let (device, queues) = standard();
+    let (general_purpose_queue, compute_queue) = {
+        let mut general_purpose_queue = None;
+        let mut compute_queue = None;
+        for queue in queues {
+            if queue.queue_flags().contains(vk::QueueFlags::GRAPHICS|vk::QueueFlags::COMPUTE|vk::QueueFlags::TRANSFER) {
+                general_purpose_queue = Some(queue.clone());
+            }
+            if queue.queue_flags().contains(vk::QueueFlags::COMPUTE) {
+                compute_queue = Some(queue.clone());
+            }
+        }
+        (general_purpose_queue.unwrap(), compute_queue.unwrap())
+    };
+    let general_purpose_command_pool = Arc::new(CommandPool::new(device.clone(), vk::CommandPoolCreateFlags::RESET_COMMAND_BUFFER, general_purpose_queue.family_index()).unwrap());
+    let descriptor_allocator = Arc::new(DescriptorSetAllocator::new(device.clone(), StandardDescriptorSetAllocatorCreateInfo {
+        set_count: 8,
+        update_after_bind: false,
+    }));
+    
+    let event_loop = EventLoop::new().unwrap();
+    event_loop.set_control_flow(ControlFlow::Poll);
+    let allocator = Arc::new(StandardMemoryAllocator::<FreeListAllocatorInternal>::new_default(device.clone()));
+    unsafe { set_global_descriptor_allocator(descriptor_allocator.clone()) };
+    unsafe { set_global_gpu_allocator(allocator.clone()) };
+    // let update_loop = UpdateLoop::new();
+    let update_loop = Arc::new(TaskExecutionLoop::new());
+    let mut app = App::new(general_purpose_queue.clone(), general_purpose_command_pool.clone(), descriptor_allocator.clone(), allocator.clone());
+    
+    
+    let mut time_cycle = TimeCycle::new(1.0/30.0);
+    update_loop.event_loop(move |dt|{
+        
+    });
+    event_loop.run_app(&mut app).unwrap();
+}

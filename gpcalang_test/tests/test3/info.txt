@@ -1,0 +1,3 @@
+UseEnergy is now true
+Width is now 256
+Height is now 256
