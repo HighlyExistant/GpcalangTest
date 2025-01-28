@@ -40,13 +40,13 @@ fn maleable_breed2(entity: &Arc<GPCAEntity>, world: &World) {
             new_code
         };
         const COLOR: [u32; 7] = [
-            0xff0000ff,
-            0x00ff00ff,
-            0x0000ffff,
-            0xffff00ff,
-            0x00ffffff,
-            0xff00ffff,
-            0xffffffff,
+            0x22222222,
+            0x44444444,
+            0x66666666,
+            0x88888888,
+            0xaaaaaaaa,
+            0xcccccccc,
+            0xeeeeeeee,
         ];
         static mut IDX: usize = 0;
 
@@ -96,13 +96,13 @@ fn maleable_breed(entity: &Arc<GPCAEntity>, world: &World) {
             new_code
         };
         const COLOR: [u32; 7] = [
-            0xff0000ff,
-            0x00ff00ff,
-            0x0000ffff,
-            0xffff00ff,
-            0x00ffffff,
-            0xff00ffff,
-            0xffffffff,
+            0x22222222,
+            0x44444444,
+            0x66666666,
+            0x88888888,
+            0xaaaaaaaa,
+            0xcccccccc,
+            0xeeeeeeee,
         ];
         static mut IDX: usize = 0;
 
@@ -120,7 +120,7 @@ fn maleable_breed(entity: &Arc<GPCAEntity>, world: &World) {
                 }
             }
         }
-        world.create_entity(GPCAEntity::new(entity.x()-1, entity.y()+1, 0, world.pseudo().gen_range(0..u64::MAX), world.pseudo().gen_range(0..u64::MAX), 4097, color, new_code));
+        world.create_entity(GPCAEntity::new(entity.x()-1, entity.y()+1, 0, world.pseudo().gen_range(0..u64::MAX), world.pseudo().gen_range(0..u64::MAX), 4096, color, new_code));
         println!("ENTITY COUNT: {}", world.get_entites().len());
     }
 }
